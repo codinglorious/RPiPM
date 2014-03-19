@@ -1,6 +1,6 @@
 import sys
 import RPi.GPIO as GPIO
-import os
+import os, urlparse
 import time
 import datetime
 import ConfigParser
@@ -19,8 +19,8 @@ class  PiBell:
 
         #check if Configuration File exists
         if not os.path.isfile(configFile):
-            self._logObj.writeToLog("configuration file was not found: " + configFile)
-            raise Exception("configuration file was not found: " + configFile)
+            self._logObj.writeToLog("[RaspiPo] configuration file was not found: " + configFile)
+            raise Exception("[RaspiPo] configuration file was not found: " + configFile)
 
         #load configuration file
         self._configuration = ConfigParser.ConfigParser()
@@ -29,12 +29,12 @@ class  PiBell:
         self._setupGPIOPin(self._listen_gpio_pin)
 
         #start services
-        self._logObj.writeToLog("listen on GPIO Pin No. " + str(self._listen_gpio_pin))
+        self._logObj.writeToLog("[RaspiPo] listen on GPIO Pin No. " + str(self._listen_gpio_pin))
         self._run()
 
 
     def __del__(self):
-        self._logObj.writeToLog("shutting down service")
+        self._logObj.writeToLog("[RaspiPo] shutting down service")
 
     def _setupGPIOPin(self,gpio_pin):
 	   GPIO.setmode(GPIO.BOARD)
@@ -63,9 +63,9 @@ class  PiBell:
         section = "Email Notification"
         if configuration.has_section(section):
             if not self._configuration.getboolean(section,"email_enable"):
-                self._logObj.writeToLog("email Notification is disbaled")
+                self._logObj.writeToLog("[Email] email notification is <disbaled>")
             else:
-                self._logObj.writeToLog("email Notification is enabled")
+                self._logObj.writeToLog("[Email] email notification is <enabled>")
                 #the eMail - Object will load configuration itself.
                 self._EmailObj = EmailNotificiation(self._configuration)
 
@@ -74,12 +74,12 @@ class  PiBell:
         if self._configuration.has_section(section):
             if self._configuration.getboolean(section,"webui_enable"):
                 self._webui_port = self._configuration.getint(section,"webui_port")
-                self._logObj.writeToLog("webui started on port " + str(self._webui_port))
+                self._logObj.writeToLog("[WEBUI] webui started on port " + str(self._webui_port))
                 try:
                     self._webui = ThreadedHTTPServer(('',self._webui_port),WebUIRequestHandler)
                     threading.Thread(target=self._webui.serve_forever).start()
                 except Exception as e:
-                    self._logObj.writeToLog("Fehler beim Starten der WEBUI: " + e.args[1])
+                    self._logObj.writeToLog("[WEBUI] error when starting the webui: " + e.args[1])
 
     def _sendEmail(self):
         try:
@@ -93,16 +93,16 @@ class  PiBell:
             while True:
                 #do some GPIO things here
                 if GPIO.input(self._listen_gpio_pin) == GPIO.LOW:
-                    self._logObj.writeToLog("hurrayyy ... signal detected!!!")
+                    self._logObj.writeToLog("[RaspiPo] <<<<<<  ... signal detected!!! >>>>>")
                     self._sendEmail()
                     #wait the amount of idle time in seconds
-                    self._logObj.writeToLog("going to sleep for " + str(self._idle_time) + " seconds")
+                    self._logObj.writeToLog("[RaspiPo] going to sleep for " + str(self._idle_time) + " seconds")
                     time.sleep(self._idle_time)
                 time.sleep(self._scan_period)
         except KeyboardInterrupt:
             pass #do nothing
         except Exception as exception:
-            self._logObj.writeToLog("stop listen on GPIO Pin " + str(self._listen_gpio_pin))
+            self._logObj.writeToLog("[RaspiPo] stop listen on GPIO Pin " + str(self._listen_gpio_pin))
 
     def _startWebServer(self):
         pass
@@ -114,13 +114,13 @@ class EmailNotificiation:
         else:
             self._logObj = logObj
 
-        self._logObj.writeToLog("starting email notifciation services")
+        self._logObj.writeToLog("[Email] starting email notifciation services")
         self._loadConfiguration(configuration)
-        self._logObj.writeToLog("trying to to reach smtp server")
+        self._logObj.writeToLog("[Email] trying to to reach smtp server")
         self._SMTPConnection= smtplib.SMTP(self._email_server_smtp,self._email_server_port)
 
     def _loadConfiguration(self,configuration):
-        self._logObj.writeToLog("reading email notification config")
+        self._logObj.writeToLog("[Email] reading email notification config")
         section = "Email Notification"
         #                    section_name           mandatory   type/string = ''
         optionlist = [     ['email_recipient',      True,       ''],
@@ -136,7 +136,7 @@ class EmailNotificiation:
 
         for option in optionlist:
             if not configuration.has_option(section,option[0]) and option[1]:
-                self._logObj.writeToLog("error in configuration file - section"  + section + " option: " + option[0])
+                self._logObj.writeToLog("[Email] error in configuration file - section"  + section + " option: " + option[0])
                 raise Exception("Konfigurationsdatei fehlerhaft"  + section + " Option: " + option[0])
             else:
                 method = getattr(configuration,'get'+option[2])
@@ -145,15 +145,20 @@ class EmailNotificiation:
 
 
     def sendEmail(self):
-        self._logObj.writeToLog("trying to send email")
-        self._logObj.writeToLog("say EHLO to STMP server")
+        self._logObj.writeToLog("[Email] trying to send email")
+        self._logObj.writeToLog("[Email] say EHLO to STMP server")
         self._SMTPConnection.ehlo()
-        self._logObj.writeToLog("start secure connection")
-        self._SMTPConnection.starttls()
-        self._logObj.writeToLog("logging in to SMTP server")
-        self._SMTPConnection.login(self._email_loginname,self._email_loginpassword)
+
+        try:
+            self._logObj.writeToLog("[Email] trying to start secure connection")
+            self._SMTPConnection.starttls()
+            self._logObj.writeToLog("[Email] logging in to SMTP server")
+            self._SMTPConnection.login(self._email_loginname,self._email_loginpassword)
+        except Exception as e:
+            self._logObj.writeToLog("[Email]" + e.args[0])
+
         message = self._createMessage()
-        self._logObj.writeToLog("sending email to " + message['To'])
+        self._logObj.writeToLog("[Email] sending email to " + message['To'])
         self._SMTPConnection.sendmail(message['From'],message['To'],message.as_string())
 
     def _createMessage(self):
@@ -173,6 +178,7 @@ class LogFile:
         self._filename = path + "/" + self._now.strftime("%Y_%m_%d") + " logfile.log"
 
     def writeToLog(self,message):
+        self._now = datetime.datetime.now()
         file = open(sys.path[0] + "/" + self._filename, 'a+')
         file.write(self._now.strftime("%H:%M:%S -> ") + message + "\n")
         file.close()
@@ -184,74 +190,169 @@ class WebUIRequestHandler(BaseHTTPRequestHandler):
     #handle GET command
 
     def do_GET(self):
-        rootdir = sys.path[0] + "/" + 'webui/'
-        try:
-            if self.path == '/':
-                self.path = "index.html"
-            if self.path.endswith('.html'):
-                f = open(rootdir + self.path) #open requested file
+        self._rootdir = sys.path[0] + "/" + 'webui'
+        parsed_path = urlparse.urlparse(self.path)
+        self.serve_content(self.path)
 
-                #send code 200 response
-                self.send_response(200)
+    def send_headers(self, path):
+        htype = ''
+        ftype = ''
 
-                #send header first
-                self.send_header('Content-type','text-html')
-                self.end_headers()
+        if path.endswith('.js'):
+            htype =	 'application/javascript'
+            ftype = 'r'
 
-                #modify output
-                output = f.read()
-                output = output.replace("%head%",open(rootdir + "header.html").read())
+        if path.endswith('.css'):
+            htype =  'text/css'
+            ftype = 'r'
 
+        if path.endswith('.html'):
+            htype =  'text/html'
+            ftype = 'r'
 
-                if self.path =="/log.html":
-                    logfilelist =  os.listdir(sys.path[0] + "/log")
-                    HTMLLogfileList = ''
-                    for logfile in logfilelist:
-                        if logfile.endswith(".log"):
-                            HTMLLogfileList = HTMLLogfileList + '<a href="' + logfile + '" target="logfileViewer">' + logfile + '</a><br/>'
-                    output = output.replace("%logfilelist%",HTMLLogfileList)
+        if path.endswith('.py'):
+            htype = 'text/html'
+            ftype = 'execute'
 
-                if self.path == "/config.html":
-                    if len(sys.argv) > 1:
-                        configFilePath = sys.argv[1]
-                    else:
-                        configFilePath = "/etc/pibell.conf"
+        if path.endswith('.png'):
+            htype =  'image/png'
+            ftype = 'rb'
 
-                    configFile = open(configFilePath)
-                    configFileContent = configFile.read()
-                    configFileContent = configFileContent.replace("\n","<br/>")
-                    output = output.replace("%config%",configFileContent)
-                    configFile.close()
+        if path.endswith('.jpg'):
+            htype =  'image/jpeg'
+            ftype = 'rb'
 
-                #send file content to client
-                self.wfile.write(output)
-                f.close()
-            elif self.path.endswith('.log'):
-                dir = sys.path[0] + "/log"
-                self.path = self.path.replace("%20"," ")
-                f = open(dir + self.path) #open requested file
+        if path.endswith('.jepg'):
+            htype =  'image/jpeg'
+            ftype = 'rb'
 
-                #send code 200 response
-                self.send_response(200)
+        if path.endswith('.ico'):
+            htype =  'image/x-icon'
+            ftype = 'rb'
 
-                #send header first
-                self.send_header('Content-type','text-html')
-                self.end_headers()
+        if path.endswith('.gif'):
+            htype =  'image/gif'
+            ftype = 'rb'
 
-                #modify output
-                output = f.read()
+        if htype != '':
+            self.send_header('Content-type', htype)
+            self.end_headers()
 
-                #send file content to client
-                self.wfile.write(output)
-                f.close()
+        else:
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
 
+        return ftype
 
-                pass
-            return
+    def do_redirect(self, path="/index.html"):
+		self.send_response(301)
+		self.send_header('Location', path)
+		self.end_headers()
 
+    def serve_content(self, path="/"):
 
-        except IOError:
-            self.send_error(404, 'file not found' + dir + self.path)
+        if path == "" or path == "/":
+            path = "/index.html"
+            self.do_redirect()
+        else:
+            f2r = self._rootdir + path
+            if os.path.isfile(f2r) or path.endswith('.log'):
+                try:
+                    self.send_response(200)
+                    ftype = self.send_headers(path)
+                    if ftype != 'execute':
+                        if path.endswith('.log'):
+                            fopen = open(sys.path[0] + "/log" + path.replace("%20"," "))
+                            content = fopen.read()
+                        else:
+                            fopen = open(self._rootdir + path)
+                            content = fopen.read()
+                            content = self._parseSpecialChars(content)
+
+                        self.wfile.write(content)
+                        fopen.close()
+                except Exception as exception:
+                    self.send_error(404)
+                    self.wfile.write(exception.args[0])
+                    self.wfile.write("Requested resource %s unavailable" % str(f2r))
+            else:
+                self.send_error(404)
+
+    def _parseSpecialChars(self,content_in):
+        content = content_in.replace("%head%",open(self._rootdir + "/header.html").read())
+        if '%logfilelist%' in content:
+            logfilelist =  os.listdir(sys.path[0] + "/log")
+            HTMLLogfileList = ''
+            for logfile in logfilelist:
+                if logfile.endswith(".log"):
+                    HTMLLogfileList = HTMLLogfileList + '<a href="' + logfile + '" target="logfileViewer">' + logfile + '</a><br/>'
+            content = content.replace("%logfilelist%",HTMLLogfileList)
+        return content
+
+##        try:
+##            if self.path == '/':
+##                self.path = "index.html"
+##            if self.path.endswith('.html'):
+##                f = open(rootdir + self.path) #open requested file
+##
+##                #send code 200 response
+##                self.send_response(200)
+##
+##                #send header first
+##                self.send_header('Content-type','text-html')
+##                self.end_headers()
+##
+##                #modify output
+##                output = f.read()
+##                output = output.replace("%head%",open(rootdir + "header.html").read())
+##
+##
+##                if self.path =="/log.html":
+##                    logfilelist =  os.listdir(sys.path[0] + "/log")
+##                    HTMLLogfileList = ''
+##                    for logfile in logfilelist:
+##                        if logfile.endswith(".log"):
+##                            HTMLLogfileList = HTMLLogfileList + '<a href="' + logfile + '" target="logfileViewer">' + logfile + '</a><br/>'
+##                    output = output.replace("%logfilelist%",HTMLLogfileList)
+##
+##                if self.path == "/config.html":
+##                    if len(sys.argv) > 1:
+##                        configFilePath = sys.argv[1]
+##                    else:
+##                        configFilePath = "/etc/pibell.conf"
+##
+##                    configFile = open(configFilePath)
+##                    configFileContent = configFile.read()
+##                    configFileContent = configFileContent.replace("\n","<br/>")
+##                    output = output.replace("%config%",configFileContent)
+##                    configFile.close()
+##
+##                #send file content to client
+##                self.wfile.write(output)
+##                f.close()
+##            elif self.path.endswith('.log'):
+##                dir = sys.path[0] + "/log"
+##                self.path = self.path.replace("%20"," ")
+##                f = open(dir + self.path) #open requested file
+##
+##                #send code 200 response
+##                self.send_response(200)
+##
+##                #send header first
+##                self.send_header('Content-type','text-html')
+##                self.end_headers()
+##
+##                #modify output
+##                output = f.read()
+##
+##                #send file content to client
+##                self.wfile.write(output)
+##                f.close()
+##            return
+##
+##
+##        except IOError:
+##            self.send_error(404, 'file not found' + dir + self.path)
 
 
 def main(configFile="/etc/pibell.conf"):
@@ -261,6 +362,8 @@ def main(configFile="/etc/pibell.conf"):
     except Exception as exception:
         print exception.args[0]
         print "Shutting Down services..."
+
+    os._exit()
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:
